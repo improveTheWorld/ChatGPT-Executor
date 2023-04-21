@@ -10,7 +10,7 @@ namespace ChatCommandExecutor
 {
     class Program
     {
-        private const int MaxMessageSize = 16000;
+        private const int maxWords = 4000;
         private static List<string> outputParts = new List<string>();
         private static int currentPartIndex = 0;
         private const string Header = "CHATGPT<< ";
@@ -18,7 +18,12 @@ namespace ChatCommandExecutor
         private static string receptionBuffer = ""; private static Process cmdProcess;
         private static StreamWriter cmdStreamWriter;
         private static StreamReader cmdStandardOutput;
-        private static StreamReader cmdStandardError; 
+        private static StreamReader cmdStandardError;
+        private static StringBuilder normalOutput = new StringBuilder();
+        private static StringBuilder errorOutput = new StringBuilder();
+        private static bool firstOutputLine = true;
+        private static ManualResetEvent outputEndEvent = new ManualResetEvent(false);
+
 
         static void Main(string[] args)
         {
@@ -33,10 +38,12 @@ namespace ChatCommandExecutor
                     InitializeCmdProcess();
                     Console.WriteLine("starting");
                     Console.WriteLine("-------------------------------------------------------");
-                    Console.WriteLine(ExecuteCommand($"cd \" C:\\Users\\Bilel_Alstom\\Desktop\\codeSource\\talk-to-chatgpt-main\\chrome-extension            string error = cmdStandardError.ReadToEnd();\r\n\r\n \r\n\r\n            if (!string.IsNullOrEmpty(error))\r\n            {{\r\n                return $\"Error: {{error}}\";\r\n            }}"));
+                    Console.WriteLine(ExecuteCommand($"cd \"C:\\Users\\Bilel_Alstom\\Desktop\\codeSource\\talk-to-chatgpt-main\\chrome-extension\" && dir"));
                     Console.WriteLine("-------------------------------------------------------");
-                    Console.WriteLine(ExecuteCommand($"type \"content.js\""));
+                    Console.WriteLine(ExecuteCommand($"type content.js"));
                     Console.WriteLine("-------------------------------------------------------");
+
+
                     var server = new WebSocketServer("ws://127.0.0.1:8181");
                     var cancellationTokenSource = new CancellationTokenSource();
                     server.Start(socket =>
@@ -63,33 +70,20 @@ namespace ChatCommandExecutor
                             {
                                 //Console.WriteLine($"Extracted command: {command}");
 
-                                //Reset output as new command executing will start
-                                outputParts = new List<string>();
-                                currentPartIndex = 0;
-
                                 // Execute the command and get the output
                                 string output = ExecuteCommand(command);
                                 //Console.WriteLine($"Command Execution output: {output}");
                                 output = Header + output + Tailor;
                                 // Divide the output into parts and send the first part
-                                if (output.Length>MaxMessageSize)
-                                {
-                                    DivideOutput(output);
-                                    SendNextPart(socket);
-                                }
-                                else
-                                {
-                                    Console.Write($"Output:"+ output);
-                                    socket.Send( output );
-                                }
-
+                                DivideOutput(output);                                
+                                SendNextPart(socket);
                             }
                         };
                     });
 
                     Console.WriteLine("WebSocket server started. Press CTRL+C to exit...");
                     Console.CancelKeyPress += (sender, e) =>
-                    {
+                    { 
                         Console.WriteLine("Shutting down...");
                         e.Cancel = true;
                         cancellationTokenSource.Cancel();
@@ -106,9 +100,29 @@ namespace ChatCommandExecutor
             }
         }
 
+       
 
-
-
+        private static void CmdProcess_OutputDataReceived(object sender, DataReceivedEventArgs e)
+        {
+            if (e.Data != null)
+            {
+                if (e.Data == "end")
+                {
+                    outputEndEvent.Set();
+                }
+                else
+                {
+                    if (firstOutputLine)
+                    {
+                        firstOutputLine = false;
+                    }
+                    else
+                    {
+                        normalOutput.AppendLine(e.Data);
+                    }
+                }
+            }
+        }
 
         static void DivideOutput(string output)
         {
@@ -117,32 +131,33 @@ namespace ChatCommandExecutor
 
             int outputLength = output.Length;
             int position = 0;
-            //bool firstPart = true;
+            
 
             while (position < outputLength)
             {
-                int length = Math.Min(MaxMessageSize, outputLength - position);
-                string part;
+                int wordsProcessed = 0;
+                StringBuilder partBuilder = new StringBuilder();
 
-                //if (firstPart)
-                //{
-                //    part = "BEGIN<" + output.Substring(position, length);
-                //    firstPart = false;
-                //}
-                //else
-                if (position + length >= outputLength)
+                while (wordsProcessed < maxWords && position < outputLength)
                 {
-                    part = output.Substring(position, length);
-                }
-                else
-                {
-                    part = output.Substring(position, length) +"<<ASK_FOR_NEXT>>";
+                    partBuilder.Append(output[position]);
+                    if (char.IsWhiteSpace(output[position]))
+                    {
+                        wordsProcessed++;
+                    }
+                    position++;
                 }
 
-                outputParts.Add(part);
-                position += length;
+                if (position < outputLength)
+                {
+                    partBuilder.Append("<<ASK_FOR_NEXT>>");
+                }
+
+                outputParts.Add(partBuilder.ToString());
             }
         }
+
+
         static int GetIndexOfNthWord(int n,int startIndex, string text)
         {
             if (n < 1 || string.IsNullOrEmpty(text))
@@ -185,41 +200,39 @@ namespace ChatCommandExecutor
 
         static string ExtractMMIMessage(string message)
         {
-            string headerKeyword = "MMI<<"; 
-            
-            int startIndex = message.IndexOf(headerKeyword);
-            
+            string headerKeyword = "MMI<<";
+            string tailorKeyword = ">>MMI";
 
-            if (startIndex == -1)
+            int startIndex = message.IndexOf(headerKeyword);
+            int endIndex = message.IndexOf(tailorKeyword);
+
+            if (startIndex == -1 && endIndex == -1)
             {
-                if(receptionBuffer != string.Empty)
+                if (receptionBuffer != string.Empty)
                 {
                     receptionBuffer += message;
-                    //send back "continue"
                 }
                 return string.Empty;
             }
-
-            
-            string MMIMessage = message.Substring(startIndex + headerKeyword.Length);
-
-            string tailorKeyword = " >>MMI";
-            int endIndex = MMIMessage.IndexOf(tailorKeyword);
-
-            if (endIndex == -1)
+            else if (startIndex != -1 && endIndex == -1)
             {
-                receptionBuffer+= MMIMessage;
+                receptionBuffer += message.Substring(startIndex + headerKeyword.Length);
                 return string.Empty;
-                //sendback "continue"
             }
-            else
+            else if (startIndex == -1 && endIndex != -1)
             {
+                receptionBuffer += message.Substring(0, endIndex);
+                string result = receptionBuffer.Trim();
                 receptionBuffer = "";
-                return MMIMessage.Substring(0, endIndex).Trim();
+                return result;
             }
-            
+            else // both startIndex and endIndex are not -1
+            {
+                return message.Substring(startIndex + headerKeyword.Length, endIndex - (startIndex + headerKeyword.Length)).Trim();
+            }
         }
 
+        
 
         static void InitializeCmdProcess()
         {
@@ -230,67 +243,50 @@ namespace ChatCommandExecutor
             cmdProcess.StartInfo.RedirectStandardInput = true;
             cmdProcess.StartInfo.RedirectStandardError = true;
             cmdProcess.StartInfo.CreateNoWindow = true;
+
+            cmdProcess.OutputDataReceived += CmdProcess_OutputDataReceived;
+            cmdProcess.ErrorDataReceived += CmdProcess_ErrorDataReceived;
+
             cmdProcess.Start();
 
             cmdStreamWriter = cmdProcess.StandardInput;
-            cmdStandardOutput = cmdProcess.StandardOutput;
-            cmdStandardError = cmdProcess.StandardError;
-            
-    }
 
-    static string ExecuteCommand(string command)
+            cmdProcess.BeginOutputReadLine();
+            cmdProcess.BeginErrorReadLine();
+        }
+
+        private static void CmdProcess_ErrorDataReceived(object sender, DataReceivedEventArgs e)
         {
+            if (e.Data != null)
+            {
+                errorOutput.AppendLine(e.Data);
+            }
+        }
+
+
+        static string ExecuteCommand(string command)
+        {
+            normalOutput.Clear();
+            errorOutput.Clear();
+
+            outputEndEvent.Reset();
+            firstOutputLine = true;
+
             cmdStreamWriter.WriteLine(command);
             cmdStreamWriter.WriteLine("echo end");
             cmdStreamWriter.Flush();
 
-            string line;
-            string output = string.Empty;
+            outputEndEvent.WaitOne();
 
-            while ((line = cmdStandardOutput.ReadLine()) != null)
+            string output = normalOutput.ToString();
+            string error = errorOutput.ToString();
+
+            if (!string.IsNullOrEmpty(error))
             {
-                if (line == "end")
-                    break;
-
-                output += line + Environment.NewLine;
+                return $"Error: {error}";
             }
 
-            //string output = cmdStandardOutput.ReadToEnd();
-            //string error = cmdStandardError.ReadToEnd();
- 
-
-            //if (!string.IsNullOrEmpty(error))
-            //{
-            //    return $"Error: {error}";
-            //}
-
             return output;
-
         }
-
-        //static string ExecuteCommand(string command)
-        //{
-        //    Process process = new Process();
-        //    process.StartInfo.FileName = "cmd.exe";
-        //    process.StartInfo.Arguments = "/c " + command;
-        //    process.StartInfo.RedirectStandardOutput = true;
-        //    process.StartInfo.RedirectStandardError = true;
-        //    process.StartInfo.UseShellExecute = false;
-        //    process.StartInfo.CreateNoWindow = true;
-
-        //    process.Start();
-
-        //    string output = process.StandardOutput.ReadToEnd();
-        //    string error = process.StandardError.ReadToEnd();
-
-        //    process.WaitForExit();
-
-        //    if (!string.IsNullOrEmpty(error))
-        //    {
-        //        return $"Error: {error}";
-        //    }
-
-        //    return output;
-        //}
     }
 }
