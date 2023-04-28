@@ -25,7 +25,7 @@ namespace ChatCommandExecutor
         private static StringBuilder errorOutput = new StringBuilder();
         private static bool firstOutputLine = true;
         private static ManualResetEvent outputEndEvent = new ManualResetEvent(false);
-
+        private static List<string> pendingCommands = new List<string>();
 
         static void Main(string[] args)
         {
@@ -44,20 +44,27 @@ namespace ChatCommandExecutor
                         socket.OnClose = () => Console.WriteLine("WebSocket connection closed.");
                         socket.OnMessage = message =>
                         {
-                            List<string> commands = ExtractWindowsCommands(message);
+                            ExtractWindowsCommands(message);
 
-                           
-                            if (commands.Count != 0)
+
+                            if (receptionBuffer != string.Empty)
+                            {
+                                Console.WriteLine($"Last Command Uncomplete. Continue");
+                                socket.Send("MMI<< Last Command Uncomplete. Continue from where you stopped >>MMI");
+                                return;
+                            }
+
+                            if (pendingCommands.Count != 0)
                             {   
                                 bool multiCommands = false;
-                                if(commands.Count > 1)
+                                if(pendingCommands.Count > 1)
                                 {
                                     multiCommands = true;
                                 }
 
                                 StringBuilder concatenatedOutput = new StringBuilder();
                                 int commandIndex = 0;
-                                foreach (string command in commands)
+                                foreach (string command in pendingCommands)
                                 {
                                     if (command == "NEXT")
                                     {
@@ -83,12 +90,8 @@ namespace ChatCommandExecutor
                                         }
                                     }
                                 }
+                                pendingCommands.Clear();
 
-                                if (receptionBuffer != string.Empty)
-                                {
-                                    Console.WriteLine($"Last Command Uncomplete. Continue");
-                                    concatenatedOutput.Append("Last Command Uncomplete. Continue from where you stopped");
-                                }
 
                                 processOutput(concatenatedOutput.ToString());
                                 SendNextPart(socket);
@@ -302,7 +305,6 @@ namespace ChatCommandExecutor
             string headerKeyword = "MMI<< ";
             string tailorKeyword = " >>MMI";
 
-            List<string> commands = new List<string>();
             int startIndex = -1;
             int endIndex = -1;
 
@@ -317,7 +319,7 @@ namespace ChatCommandExecutor
                     if (endIndex != -1)
                     {
                         string command = receptionBuffer.Substring(startIndex + headerKeyword.Length, endIndex - startIndex - headerKeyword.Length).Trim();
-                        commands.Add(command);
+                        pendingCommands.Add(command);
                     }
                     else
                     {
@@ -331,7 +333,7 @@ namespace ChatCommandExecutor
                 }
             } while (startIndex != -1 && endIndex != -1);
 
-            return commands;
+            return pendingCommands;
         }
 
 

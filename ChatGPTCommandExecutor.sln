@@ -5,8 +5,6 @@ VisualStudioVersion = 17.5.33516.290
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ChatGPTCommandExecutor", "ChatGPTCommandExecutor.csproj", "{951901AD-D3E1-43B0-945C-0123138587C5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "chatGPTSimulator", "..\chatGPTSimulator\chatGPTSimulator.csproj", "{FF248900-56C6-48CD-875A-28CD644DD674}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -17,10 +15,6 @@ Global
 		{951901AD-D3E1-43B0-945C-0123138587C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{951901AD-D3E1-43B0-945C-0123138587C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{951901AD-D3E1-43B0-945C-0123138587C5}.Release|Any CPU.Build.0 = Release|Any CPU
-		{FF248900-56C6-48CD-875A-28CD644DD674}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{FF248900-56C6-48CD-875A-28CD644DD674}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{FF248900-56C6-48CD-875A-28CD644DD674}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{FF248900-56C6-48CD-875A-28CD644DD674}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
