@@ -6,7 +6,17 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <ApplicationIcon>Images\logo48.ico</ApplicationIcon>
+    <Copyright>2023 @Tec-Net</Copyright>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/improveTheWorld/ChatGPT-Executor.git</RepositoryUrl>
+    <PackageLicenseFile>LICENSE_NOTICE.md</PackageLicenseFile>
+    <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    <Version>1.0.0-rc1</Version>
+    <StartupObject></StartupObject>
+    <Company>Tec-Net</Company>
+    <Product>ChatGPT-Driver</Product>
   </PropertyGroup>
+
 
   <ItemGroup>
     <Content Include="Images\logo48.ico" />
@@ -14,6 +24,17 @@
 
   <ItemGroup>
     <PackageReference Include="Fleck" Version="1.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="LICENSE_NOTICE.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
+    <None Update="README.md">
+      <Pack>True</Pack>
+      <PackagePath>\</PackagePath>
+    </None>
   </ItemGroup>
 
 </Project>
