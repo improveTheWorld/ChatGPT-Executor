@@ -1,5 +1,4 @@
-ChatGPT-Executor
-================
+# ![ChatGPT-Executor Logo](./Images/logo.jpg) **ChatGPT-Bridge**
 
 **ChatGPT-Executor is a server application that empowers ChatGPT to execute Windows commands, unlocking a wide range of applications and capabilities.**
 
