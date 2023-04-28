@@ -27,18 +27,19 @@ ChatGPT-Executor is part of the ChatGPT-Driver system, designed to seamlessly in
   1. Ensure you have .NET 6.0 SDK installed on your system. If not, download it from the [.NET downloads page](https://dotnet.microsoft.com/download/dotnet/6.0).
   2. Open a command prompt or terminal window.
   3. If you have Git installed, you can use the following command:
+   
 
-  `git clone https://github.com/improveTheWorld/ChatGPT-Executor.git`
+     >`git clone https://github.com/improveTheWorld/ChatGPT-Executor.git`
 
   Alternatively, download the repository as a ZIP file to your local machine from [here](https://github.com/improveTheWorld/ChatGPT-Executor/archive/refs/heads/master.zip) and extract it to a folder on your local machine.
 
-  4. Change your working directory to the ChatGPT-Executor folder:
+  1. Change your working directory to the ChatGPT-Executor folder:
 
-  `cd ChatGPT-Executor`
+      >`cd ChatGPT-Executor`
 
-  5. Build the solution using the `dotnet build` command:
+  5. Build the solution using the *"dotnet build"* command:
 
-  `dotnet build`
+      >`dotnet build`
 
   6. Once the build is successful, you can find the compiled executable in the "bin" folder of the project directory, under the "Release" folder.
 
