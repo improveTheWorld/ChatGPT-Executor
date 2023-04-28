@@ -44,24 +44,53 @@ namespace ChatCommandExecutor
                         socket.OnClose = () => Console.WriteLine("WebSocket connection closed.");
                         socket.OnMessage = message =>
                         {
-                            string command = ExtractWindowsCommand( message);
-                            //send back continu while buffering 
-                            if (receptionBuffer != string.Empty)
-                            {
-                                Console.WriteLine($"Command uncomplete. Continue");
-                                socket.Send("Continue");
-                            }
-                            else if (command !=string.Empty)
-                            {
-                                if (command == "NEXT")
+                            List<string> commands = ExtractWindowsCommands(message);
+
+                           
+                            if (commands.Count != 0)
+                            {   
+                                bool multiCommands = false;
+                                if(commands.Count > 1)
                                 {
-                                    Console.Write($"NEXT:");
-                                }
-                                else
-                                {
-                                    processCommand(command);
+                                    multiCommands = true;
                                 }
 
+                                StringBuilder concatenatedOutput = new StringBuilder();
+                                int commandIndex = 0;
+                                foreach (string command in commands)
+                                {
+                                    if (command == "NEXT")
+                                    {
+                                        Console.Write("Will sent NEXT Part:");
+                                    }
+                                    else
+                                    {
+                                        //reset output parts list
+                                        outputParts.Clear();
+                                        currentPartIndex = 0;
+
+                                        commandIndex++;
+                                        string commandOutput = ExecuteCommand(command);
+                                        if(multiCommands && commandOutput.Trim()!= string.Empty)
+                                        {
+                                            concatenatedOutput.Append($"## Command {commandIndex} Feedback \r\n");
+                                            concatenatedOutput.Append(commandOutput);
+                                            concatenatedOutput.Append($"## End command {commandIndex} Feedback \r\n");
+                                        }
+                                        else
+                                        {
+                                            concatenatedOutput.Append(commandOutput);
+                                        }
+                                    }
+                                }
+
+                                if (receptionBuffer != string.Empty)
+                                {
+                                    Console.WriteLine($"Last Command Uncomplete. Continue");
+                                    concatenatedOutput.Append("Last Command Uncomplete. Continue from where you stopped");
+                                }
+
+                                processOutput(concatenatedOutput.ToString());
                                 SendNextPart(socket);
                             }
                         };
@@ -86,10 +115,8 @@ namespace ChatCommandExecutor
             }
         }
 
-        static void processCommand(string command)
+        static void processOutput(string output)
         {
-            // Execute the command and get the output
-            string output = ExecuteCommand(command);
             //Console.WriteLine($"Command Execution output: {output}");
             output = Header + output + Tailor;
             // Divide the output into parts and send the first part
@@ -124,9 +151,7 @@ namespace ChatCommandExecutor
 
         static void DivideOutputOnSize(string output)
         {
-            outputParts.Clear();
-            currentPartIndex = 0;
-
+ 
             int outputLength = output.Length;
             int position = 0;
             //bool firstPart = true;
@@ -192,9 +217,6 @@ namespace ChatCommandExecutor
 
         static void DivideOutput(string output)
         {
-            outputParts.Clear();
-            currentPartIndex = 0;
-
             int outputLength = output.Length;
             int position = 0;
 
@@ -275,48 +297,43 @@ namespace ChatCommandExecutor
             }
         }
 
-        static string ExtractWindowsCommand(string message)
+        static List<string> ExtractWindowsCommands(string message)
         {
             string headerKeyword = "MMI<< ";
             string tailorKeyword = " >>MMI";
 
-            int startIndex = message.IndexOf(headerKeyword);
-            int endIndex = message.IndexOf(tailorKeyword);
+            List<string> commands = new List<string>();
+            int startIndex = -1;
+            int endIndex = -1;
 
-            if (startIndex == -1 && endIndex == -1)
-            {
-                if (receptionBuffer != string.Empty)
-                {
-                    receptionBuffer += message;
-                }
-                return string.Empty;
-            }
-            else if (startIndex != -1 && endIndex == -1)
-            {
-                receptionBuffer += message.Substring(startIndex + headerKeyword.Length);
-                return string.Empty;
-            }
-            else // tailorKeyword detected
-            {
-                string command;
-                int startingFrom;
-                if (startIndex == -1 && endIndex != -1)
-                {
-                    startingFrom = 0;              
-                }
-                else // both startIndex and endIndex are not -1
-                {
-                    startingFrom = startIndex + headerKeyword.Length;
-                }
+            receptionBuffer += message;
 
-                receptionBuffer += message.Substring(startingFrom, endIndex-startingFrom);
-                command = receptionBuffer.Trim();
-                receptionBuffer = String.Empty;
-                return command;
-            }
+            do
+            {
+                startIndex = receptionBuffer.IndexOf(headerKeyword, startIndex + 1);
+                if (startIndex != -1)
+                {
+                    endIndex = receptionBuffer.IndexOf(tailorKeyword, startIndex + headerKeyword.Length);
+                    if (endIndex != -1)
+                    {
+                        string command = receptionBuffer.Substring(startIndex + headerKeyword.Length, endIndex - startIndex - headerKeyword.Length).Trim();
+                        commands.Add(command);
+                    }
+                    else
+                    {
+                        receptionBuffer = receptionBuffer.Substring(startIndex);
+                        break;
+                    }
+                }
+                else
+                {
+                    receptionBuffer = "";
+                }
+            } while (startIndex != -1 && endIndex != -1);
+
+            return commands;
         }
 
-        
 
         static void InitializeCmdProcess()
         {
