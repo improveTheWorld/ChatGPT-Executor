@@ -5,7 +5,7 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <ApplicationIcon>Images\logo48.ico</ApplicationIcon>
+    <ApplicationIcon>..\assets\logo48.ico</ApplicationIcon>
     <Copyright>2023 @Tec-Net</Copyright>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <RepositoryUrl>https://github.com/improveTheWorld/ChatGPT-Executor.git</RepositoryUrl>
@@ -19,7 +19,7 @@
 
 
   <ItemGroup>
-    <Content Include="Images\logo48.ico" />
+    <Content Include="..\assets\logo48.ico" />
   </ItemGroup>
 
   <ItemGroup>

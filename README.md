@@ -1,4 +1,4 @@
-# ![ChatGPT-Executor Logo](./Images/logo.jpg) **ChatGPT-Executor**
+# ![ChatGPT-Executor Logo](./assets/logo.jpg) **ChatGPT-Executor**
 
 **ChatGPT-Executor is a server application that empowers ChatGPT to execute Windows commands, unlocking a wide range of applications and capabilities.**
 
