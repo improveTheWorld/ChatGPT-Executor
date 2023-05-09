@@ -5,31 +5,46 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using Fleck;
+using System.Timers;
+
 
 namespace ChatCommandExecutor
 {
     class Program
     {
-        private const int maxWords = 2000;
+        private const int maxWords = 2400;
         private const int MaxMessageSize = 4000;
         private static List<string> outputParts = new List<string>();
         private static int currentPartIndex = 0;
+
         private const string Header = "CHATGPT<< \r\n";
         private const string Tailor = "\r\n >>CHATGPT";
         private static string receptionBuffer = ""; 
+
+        private static bool firstOutputLine = true;
+        private static List<string> pendingCommands = new List<string>();
+
         private static Process cmdProcess;
         private static StreamWriter cmdStreamWriter;
-        private static StreamReader cmdStandardOutput;
-        private static StreamReader cmdStandardError;
         private static StringBuilder normalOutput = new StringBuilder();
         private static StringBuilder errorOutput = new StringBuilder();
-        private static bool firstOutputLine = true;
         private static ManualResetEvent outputEndEvent = new ManualResetEvent(false);
-        private static List<string> pendingCommands = new List<string>();
+        private static ManualResetEvent questionAskedEvent = new ManualResetEvent(false);
+        private static ManualResetEvent answerProvidedEvent = new ManualResetEvent(false);
+        private static System.Timers.Timer outputTimeoutTimer;
+        private static string firstPrompt;
+        static void resetCommunicationBuffers()
+        {
+            outputParts.Clear();
+            currentPartIndex = 0;
+            receptionBuffer = string.Empty;
+            pendingCommands.Clear();
+        }
 
         static void Main(string[] args)
         {
             bool isNewInstance;
+            firstPrompt = File.ReadAllText("firstPrompt.md");
             using (Mutex mutex = new Mutex(true, "ChatCommandExecutor", out isNewInstance))
             {
                 if (isNewInstance)
@@ -44,57 +59,73 @@ namespace ChatCommandExecutor
                         socket.OnClose = () => Console.WriteLine("WebSocket connection closed.");
                         socket.OnMessage = message =>
                         {
-                            ExtractWindowsCommands(message);
-
-
-                            if (receptionBuffer != string.Empty)
+                            if(message=="_STOP_")
                             {
-                                Console.WriteLine($"Last Command Uncomplete. Continue");
-                                socket.Send("MMI<< Last Command Uncomplete. Continue from where you stopped >>MMI");
+                                resetCommunicationBuffers();
                                 return;
                             }
+                            else if (message == "_START_NEW")
+                            {
+                                resetCommunicationBuffers();
+                                socket.Send(firstPrompt);
+                                return;
+                            }
+                            else
+                            {
+                                Console.WriteLine("New message received");
+                                ExtractWindowsCommands(message);
 
-                            if (pendingCommands.Count != 0)
-                            {   
-                                bool multiCommands = false;
-                                if(pendingCommands.Count > 1)
+
+                                if (receptionBuffer != string.Empty)
                                 {
-                                    multiCommands = true;
+                                    Console.WriteLine($"Last Command Uncomplete. Continue");
+                                    socket.Send($"{Header} The previous command was incomplete. Please do not repeat any words that I have already received. Instead, continue from where you left off. The last line I received was '{GetLastLine(receptionBuffer)}'.  {Tailor}");
+                                    return;
                                 }
 
-                                StringBuilder concatenatedOutput = new StringBuilder();
-                                int commandIndex = 0;
-                                foreach (string command in pendingCommands)
+                                if (pendingCommands.Count != 0)
                                 {
-                                    if (command == "NEXT")
+                                    bool multiCommands = false;
+                                    if (pendingCommands.Count > 1)
                                     {
-                                        Console.Write("Will sent NEXT Part:");
+                                        multiCommands = true;
                                     }
-                                    else
-                                    {
-                                        //reset output parts list
-                                        outputParts.Clear();
-                                        currentPartIndex = 0;
 
-                                        commandIndex++;
-                                        string commandOutput = ExecuteCommand(command);
-                                        if(multiCommands && commandOutput.Trim()!= string.Empty)
+                                    StringBuilder concatenatedOutput = new StringBuilder();
+                                    int commandIndex = 0;
+                                    foreach (string command in pendingCommands)
+                                    {
+                                        if (command == "NEXT")
                                         {
-                                            concatenatedOutput.Append($"## Command {commandIndex} Feedback \r\n");
-                                            concatenatedOutput.Append(commandOutput);
-                                            concatenatedOutput.Append($"## End command {commandIndex} Feedback \r\n");
+                                            Console.Write("Will sent NEXT Part:");
                                         }
                                         else
                                         {
-                                            concatenatedOutput.Append(commandOutput);
+                                            //reset output parts list
+                                            outputParts.Clear();
+                                            currentPartIndex = 0;
+
+                                            commandIndex++;
+                                            string commandOutput = ExecuteCommand(command);
+                                            if (multiCommands && commandOutput.Trim() != string.Empty)
+                                            {
+                                                concatenatedOutput.Append($"## Command {commandIndex} Feedback \r\n");
+                                                concatenatedOutput.Append(commandOutput);
+                                                concatenatedOutput.Append($"## End command {commandIndex} Feedback \r\n");
+                                            }
+                                            else
+                                            {
+                                                concatenatedOutput.Append(commandOutput);
+                                            }
                                         }
                                     }
+                                    pendingCommands.Clear();
+
+
+                                    processOutput(concatenatedOutput.ToString());
+                                    SendNextPart(socket);
                                 }
-                                pendingCommands.Clear();
-
-
-                                processOutput(concatenatedOutput.ToString());
-                                SendNextPart(socket);
+                            
                             }
                         };
                     });
@@ -118,6 +149,27 @@ namespace ChatCommandExecutor
             }
         }
 
+        public static string GetLastLine(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return string.Empty;
+            }
+
+            int lastNewLineIndex = text.LastIndexOfAny(new char[] { '\r', '\n' });
+            if (lastNewLineIndex == -1)
+            {
+                return text;
+            }
+
+            if (lastNewLineIndex > 0 && text[lastNewLineIndex - 1] == '\r' && text[lastNewLineIndex] == '\n')
+            {
+                lastNewLineIndex--;
+            }
+
+            return text.Substring(lastNewLineIndex + 1);
+        }
+
         static void processOutput(string output)
         {
             //Console.WriteLine($"Command Execution output: {output}");
@@ -126,31 +178,7 @@ namespace ChatCommandExecutor
             DivideOutput(output);
         }
 
-        static void CmdProcess_OutputDataReceived(object sender, DataReceivedEventArgs e)
-        {
-            if (e.Data != null)
-            {
-                if (e.Data == "end")
-                {
-                    outputEndEvent.Set();
-                }
-                else if (e.Data.EndsWith("echo end"))
-                {
-                    // Ignore the "echo end" line
-                }
-                else
-                {
-                    if (firstOutputLine)
-                    {
-                        firstOutputLine = false;
-                    }
-                    else
-                    {
-                        normalOutput.AppendLine(e.Data);
-                    }
-                }
-            }
-        }
+       
 
         static void DivideOutputOnSize(string output)
         {
@@ -302,8 +330,8 @@ namespace ChatCommandExecutor
 
         static List<string> ExtractWindowsCommands(string message)
         {
-            string headerKeyword = "MMI<< ";
-            string tailorKeyword = " >>MMI";
+            string headerKeyword = "MMI<<";
+            string tailorKeyword = ">>MMI";
 
             int startIndex = -1;
             int endIndex = -1;
@@ -356,30 +384,33 @@ namespace ChatCommandExecutor
 
             cmdProcess.BeginOutputReadLine();
             cmdProcess.BeginErrorReadLine();
-        }
 
-        private static void CmdProcess_ErrorDataReceived(object sender, DataReceivedEventArgs e)
-        {
-            if (e.Data != null)
-            {
-                errorOutput.AppendLine(e.Data);
-            }
+            outputTimeoutTimer = new System.Timers.Timer(1000); // 1 second timeout
+            outputTimeoutTimer.Elapsed += OutputTimeoutTimer_Elapsed;
+            outputTimeoutTimer.AutoReset = false;
         }
 
 
-        static string ExecuteCommand(string command)
+
+
+
+        public static string ExecuteCommand(string command)
         {
             normalOutput.Clear();
             errorOutput.Clear();
 
             outputEndEvent.Reset();
-            firstOutputLine = true;
+            questionAskedEvent.Reset();
 
             cmdStreamWriter.WriteLine(command);
-            cmdStreamWriter.WriteLine("echo end");
+ 
             cmdStreamWriter.Flush();
 
-            outputEndEvent.WaitOne();
+            outputTimeoutTimer.Start();
+
+            WaitHandle.WaitAny(new[] { outputEndEvent, questionAskedEvent });
+
+            outputTimeoutTimer.Stop();
 
             string output = normalOutput.ToString();
             string error = errorOutput.ToString();
@@ -389,7 +420,71 @@ namespace ChatCommandExecutor
                 return $"Error: {error}";
             }
 
+            if (questionAskedEvent.WaitOne(0))
+            {
+                return $"Question: {output}";
+            }
+
             return output;
         }
+
+
+        public static void ProvideAnswer(string answer)
+        {
+            cmdStreamWriter.WriteLine(answer);
+            cmdStreamWriter.Flush();
+            answerProvidedEvent.Set();
+        }
+
+        static void CmdProcess_OutputDataReceived(object sender, DataReceivedEventArgs e)
+        {
+            if (e.Data != null)
+            {
+                outputTimeoutTimer.Stop();
+                outputTimeoutTimer.Start();
+
+                if (e.Data == "end")
+                {
+                    outputEndEvent.Set();
+                }
+                else if (e.Data.EndsWith("?"))
+                {
+                    normalOutput.AppendLine(e.Data);
+                    questionAskedEvent.Set();
+                }
+                else if (e.Data.EndsWith("echo end"))
+                {
+                    outputEndEvent.Set();
+                    // Ignore the "echo end" line
+                }
+                else
+                {//ignore the first line when creating a cmd window:
+                   // (c)Microsoft Corporation.Tous droits réservés.
+                    if (firstOutputLine)
+                    {
+                        firstOutputLine = false;
+                    }
+                    else
+                    {
+                        normalOutput.AppendLine(e.Data);
+                        
+                    }
+                }
+            }
+        }
+
+        private static void CmdProcess_ErrorDataReceived(object sender, DataReceivedEventArgs e)
+        {
+            if (e.Data == null) return;
+
+            errorOutput.AppendLine(e.Data);
+        }
+
+        private static void OutputTimeoutTimer_Elapsed(object sender, ElapsedEventArgs e)
+        {
+            outputEndEvent.Set();
+        }
+
     }
 }
+
