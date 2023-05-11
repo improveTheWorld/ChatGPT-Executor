@@ -14,6 +14,10 @@ ChatGPT-Executor is part of the [ChatGPT-Driver](youtu.be/9fCtMJQxQ4c) system, d
 
 ## 🚀 Getting Started
 
+You may download and install Executor from [Here](https://bit.ly/3I33M7F) 
+
+If you want to genrate your own binaries , see the next paragraph.
+
 ### Prerequisites
 
 * Windows operating system
