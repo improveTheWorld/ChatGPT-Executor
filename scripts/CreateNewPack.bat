@@ -27,6 +27,7 @@ if !fileSize!==0 (
         del "..\dist\Executor_%version%.zip"
     )
 
+    ISCC CreateSetup.iss /DMyAppVersion=%version% 
     rem Zip the output files
     powershell -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::CreateFromDirectory('..\src\bin\Release\net6.0', '..\dist\Executor_%version%.zip'); }"
     
