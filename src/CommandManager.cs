@@ -6,11 +6,12 @@ using System.Text;
 using System.Threading;
 using Fleck;
 using System.Timers;
+using System.ServiceProcess;
 
 
-namespace ChatCommandExecutor
+namespace ChatGPTExecutor
 {
-    class Program
+    class CommandManager
     {
         private const int maxWords = 2400;
         private const int MaxMessageSize = 4000;
@@ -33,6 +34,11 @@ namespace ChatCommandExecutor
         private static ManualResetEvent answerProvidedEvent = new ManualResetEvent(false);
         private static System.Timers.Timer outputTimeoutTimer;
         private static string firstPrompt;
+
+        private static WebSocketServer server;
+        private static CancellationTokenSource cancellationTokenSource= new CancellationTokenSource();
+        private static  Task serviceTask;
+
         static void resetCommunicationBuffers()
         {
             outputParts.Clear();
@@ -41,18 +47,41 @@ namespace ChatCommandExecutor
             pendingCommands.Clear();
         }
 
-        static void Main(string[] args)
+       
+
+        public void Stop()
+        {
+            Console.WriteLine("Shutting down...");
+
+            // Stop the cmd process
+            if (!cmdProcess.HasExited)
+            {
+                cmdProcess.Kill();
+            }
+
+            // Dispose the WebSocket server
+            cancellationTokenSource.Cancel();
+            server.Dispose();
+            serviceTask.Wait();
+
+            Console.WriteLine("WebSocket server stopped.");
+        }
+        public void Start()
+        {
+            serviceTask = Task.Run(() => StartServiceTask(), cancellationTokenSource.Token);
+        }
+        public void StartServiceTask()
         {
             bool isNewInstance;
             firstPrompt = File.ReadAllText("firstPrompt.md");
-            using (Mutex mutex = new Mutex(true, "ChatCommandExecutor", out isNewInstance))
+            using (Mutex mutex = new Mutex(true, "ChatGPTExecutor", out isNewInstance))
             {
                 if (isNewInstance)
                 {
                     // Initialize cmd process
                     InitializeCmdProcess();
-                    var server = new WebSocketServer("ws://127.0.0.1:8181");
-                    var cancellationTokenSource = new CancellationTokenSource();
+                    server = new WebSocketServer("ws://127.0.0.1:8181");
+                    cancellationTokenSource = new CancellationTokenSource();
                     server.Start(socket =>
                     {
                         socket.OnOpen = () => Console.WriteLine("WebSocket connection opened.");
