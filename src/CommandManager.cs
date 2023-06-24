@@ -6,7 +6,11 @@ using System.Text;
 using System.Threading;
 using Fleck;
 using System.Timers;
-using System.ServiceProcess;
+using System.Security.Cryptography;
+using Serilog;
+using Serilog.Events;
+using Serilog.Sinks.File;
+using Serilog.Formatting.Compact;
 
 
 namespace ChatGPTExecutor
@@ -38,6 +42,8 @@ namespace ChatGPTExecutor
         private static WebSocketServer server;
         private static CancellationTokenSource cancellationTokenSource= new CancellationTokenSource();
         private static  Task serviceTask;
+        private static  Dictionary<string, string> authSentences = new Dictionary<string, string>();
+        private static string Key = "1234567890123456";
 
         static void resetCommunicationBuffers()
         {
@@ -48,10 +54,9 @@ namespace ChatGPTExecutor
         }
 
        
-
         public void Stop()
         {
-            Console.WriteLine("Shutting down...");
+            Log.Information("Shutting down...");
 
             // Stop the cmd process
             if (!cmdProcess.HasExited)
@@ -64,11 +69,191 @@ namespace ChatGPTExecutor
             server.Dispose();
             serviceTask.Wait();
 
-            Console.WriteLine("WebSocket server stopped.");
+            Log.Information("WebSocket server stopped.");
         }
+        
         public void Start()
         {
             serviceTask = Task.Run(() => StartServiceTask(), cancellationTokenSource.Token);
+        }
+
+        public static string GenerateRandomToken(int keySize = 256)
+        {
+            using (Aes aes = Aes.Create())
+            {
+                aes.KeySize = keySize;
+                aes.GenerateKey();
+                return Convert.ToBase64String(aes.Key);
+            }
+        }
+
+        public static string DecryptStringAES(string cipherText, string key)
+        {
+            byte[] keyBytes = Encoding.UTF8.GetBytes(key);
+            byte[] encryptedBytes = Convert.FromBase64String(cipherText);
+            byte[] iv = new byte[16];
+            Array.Copy(encryptedBytes, 0, iv, 0, iv.Length);
+            byte[] cipherBytes = new byte[encryptedBytes.Length - iv.Length];
+            Array.Copy(encryptedBytes, iv.Length, cipherBytes, 0, cipherBytes.Length);
+
+            using (Aes aes = Aes.Create())
+            {
+                aes.Key = keyBytes;
+                aes.IV = iv;
+                aes.Padding = PaddingMode.PKCS7; // Set the padding mode to PKCS7
+
+                ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+
+                using (MemoryStream ms = new MemoryStream(cipherBytes))
+                using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
+                using (StreamReader reader = new StreamReader(cs))
+                {
+                    return reader.ReadToEnd();
+                }
+            }
+        }
+
+        public static string ComputeSha256Hash(string rawData)
+        {
+            using (SHA256 sha256Hash = SHA256.Create())
+            {
+                byte[] bytes = sha256Hash.ComputeHash(Encoding.UTF8.GetBytes(rawData));
+
+                StringBuilder builder = new StringBuilder();
+                for (int i = 0; i < bytes.Length; i++)
+                {
+                    builder.Append(bytes[i].ToString("x2"));
+                }
+                return builder.ToString();
+            }
+        }
+
+        public void connect(WebSocketServer server)
+        {
+            server.Start(socket =>
+            {
+                socket.OnOpen = () =>
+                {
+                    var cookies = socket.ConnectionInfo.Cookies;
+                    Log.Information("WebSocket connection Attempt, Authentificate...");
+
+                    if (!cookies.ContainsKey("authenticated"))
+                    {
+                        cookies["authenticated"] = "False";
+                    }
+
+                    if (cookies["authenticated"] == "False")
+                    {
+                        var token = GenerateRandomToken();
+                        cookies["token"] = ComputeSha256Hash(token);
+                        socket.Send(token);
+                    }
+                };
+
+
+                socket.OnClose = () =>
+                {
+                    Log.Information("WebSocket connection closed.");
+
+                    // Reconnect when the connection is closed
+                    if (!cancellationTokenSource.IsCancellationRequested)
+                    {
+                        Task.Delay(TimeSpan.FromSeconds(5)).ContinueWith(_ => connect(server));
+                    }
+                };
+                socket.OnMessage = message =>
+                {
+                    var cookies = socket.ConnectionInfo.Cookies;
+
+                    if (cookies["authenticated"] == "False")
+                    {
+                        if (DecryptStringAES(message, Key) == cookies["token"])
+                        {
+                            cookies["authenticated"] = "True";
+                            Log.Information("Authentification succeeded...");
+                        }
+                        else
+                        {
+                            Log.Error("Authentification Failed...");
+                        }
+
+                    }
+
+                    if (cookies["authenticated"] == "True")
+                    {
+                        if (message == "_STOP_")
+                        {
+                            resetCommunicationBuffers();
+                            return;
+                        }
+                        else if (message == "_START_NEW")
+                        {
+                            resetCommunicationBuffers();
+                            socket.Send(firstPrompt);
+                            return;
+                        }
+                        else
+                        {
+                            Log.Information("New message received");
+                            ExtractWindowsCommands(message);
+
+
+                            if (receptionBuffer != string.Empty)
+                            {
+                                Log.Information($"Last Command Uncomplete. Continue");
+                                socket.Send($"{Header} The previous command was incomplete. Please do not repeat any words that I have already received. Instead, continue from where you left off. The last line I received was '{GetLastLine(receptionBuffer)}'.  {Tailor}");
+                                return;
+                            }
+
+                            if (pendingCommands.Count != 0)
+                            {
+                                bool multiCommands = false;
+                                if (pendingCommands.Count > 1)
+                                {
+                                    multiCommands = true;
+                                }
+
+                                StringBuilder concatenatedOutput = new StringBuilder();
+                                int commandIndex = 0;
+                                foreach (string command in pendingCommands)
+                                {
+                                    if (command == "NEXT")
+                                    {
+                                        Console.Write("Will sent NEXT Part:");
+                                    }
+                                    else
+                                    {
+                                        //reset output parts list
+                                        outputParts.Clear();
+                                        currentPartIndex = 0;
+
+                                        commandIndex++;
+                                        string commandOutput = ExecuteCommand(command);
+                                        if (multiCommands && commandOutput.Trim() != string.Empty)
+                                        {
+                                            concatenatedOutput.Append($"## Command {commandIndex} Feedback \r\n");
+                                            concatenatedOutput.Append(commandOutput);
+                                            concatenatedOutput.Append($"## End command {commandIndex} Feedback \r\n");
+                                        }
+                                        else
+                                        {
+                                            concatenatedOutput.Append(commandOutput);
+                                        }
+                                    }
+                                }
+                                pendingCommands.Clear();
+
+
+                                processOutput(concatenatedOutput.ToString());
+                                SendNextPart(socket);
+                            }
+
+                        }
+                    };
+                };
+
+            });
+
         }
         public void StartServiceTask()
         {
@@ -78,91 +263,37 @@ namespace ChatGPTExecutor
             {
                 if (isNewInstance)
                 {
+
+
+
+                    Log.Logger = new LoggerConfiguration()
+                        .WriteTo.Console()
+                        .WriteTo.File(
+                            new CompactJsonFormatter(),
+                            "logs/log-.txt",
+                            rollingInterval: RollingInterval.Day,
+                            fileSizeLimitBytes: 1_000_000_000,
+                            rollOnFileSizeLimit: true,
+                            retainedFileCountLimit: null,
+                            shared: true,
+                            flushToDiskInterval: TimeSpan.FromSeconds(1))
+                        .CreateLogger();
+
+                    Log.Information("Logging initialized.............");
+
+                  
+
+
                     // Initialize cmd process
                     InitializeCmdProcess();
                     server = new WebSocketServer("ws://127.0.0.1:8181");
                     cancellationTokenSource = new CancellationTokenSource();
-                    server.Start(socket =>
-                    {
-                        socket.OnOpen = () => Console.WriteLine("WebSocket connection opened.");
-                        socket.OnClose = () => Console.WriteLine("WebSocket connection closed.");
-                        socket.OnMessage = message =>
-                        {
-                            if(message=="_STOP_")
-                            {
-                                resetCommunicationBuffers();
-                                return;
-                            }
-                            else if (message == "_START_NEW")
-                            {
-                                resetCommunicationBuffers();
-                                socket.Send(firstPrompt);
-                                return;
-                            }
-                            else
-                            {
-                                Console.WriteLine("New message received");
-                                ExtractWindowsCommands(message);
+                    connect(server);
 
-
-                                if (receptionBuffer != string.Empty)
-                                {
-                                    Console.WriteLine($"Last Command Uncomplete. Continue");
-                                    socket.Send($"{Header} The previous command was incomplete. Please do not repeat any words that I have already received. Instead, continue from where you left off. The last line I received was '{GetLastLine(receptionBuffer)}'.  {Tailor}");
-                                    return;
-                                }
-
-                                if (pendingCommands.Count != 0)
-                                {
-                                    bool multiCommands = false;
-                                    if (pendingCommands.Count > 1)
-                                    {
-                                        multiCommands = true;
-                                    }
-
-                                    StringBuilder concatenatedOutput = new StringBuilder();
-                                    int commandIndex = 0;
-                                    foreach (string command in pendingCommands)
-                                    {
-                                        if (command == "NEXT")
-                                        {
-                                            Console.Write("Will sent NEXT Part:");
-                                        }
-                                        else
-                                        {
-                                            //reset output parts list
-                                            outputParts.Clear();
-                                            currentPartIndex = 0;
-
-                                            commandIndex++;
-                                            string commandOutput = ExecuteCommand(command);
-                                            if (multiCommands && commandOutput.Trim() != string.Empty)
-                                            {
-                                                concatenatedOutput.Append($"## Command {commandIndex} Feedback \r\n");
-                                                concatenatedOutput.Append(commandOutput);
-                                                concatenatedOutput.Append($"## End command {commandIndex} Feedback \r\n");
-                                            }
-                                            else
-                                            {
-                                                concatenatedOutput.Append(commandOutput);
-                                            }
-                                        }
-                                    }
-                                    pendingCommands.Clear();
-
-
-                                    processOutput(concatenatedOutput.ToString());
-                                    SendNextPart(socket);
-                                }
-                            
-                            }
-                        };
-                    });
-
-                    Console.WriteLine("WebSocket server started. Press CTRL+C to exit...");
+                    Log.Information("WebSocket server started. Press CTRL+C to exit...");
                     Console.CancelKeyPress += (sender, e) =>
-                    { 
-                        Console.WriteLine("Shutting down...");
+                    {
+                        Log.Information("Shutting down...");
                         e.Cancel = true;
                         cancellationTokenSource.Cancel();
                     };
@@ -170,10 +301,12 @@ namespace ChatGPTExecutor
                     WaitHandle.WaitAny(new[] { cancellationTokenSource.Token.WaitHandle });
 
                     server.Dispose();
+
+                    Log.CloseAndFlush();
                 }
                 else
                 {
-                    Console.WriteLine("An instance of this program is already running.");
+                    Log.Information("An instance of this program is already running.");
                 }
             }
         }
@@ -350,7 +483,7 @@ namespace ChatGPTExecutor
         {
             if (currentPartIndex < outputParts.Count)
             {
-                Console.WriteLine(outputParts[currentPartIndex]);
+                Log.Information(outputParts[currentPartIndex]);
                 int size = outputParts[currentPartIndex].Length;
                 socket.Send( outputParts[currentPartIndex]);
                 currentPartIndex++;
@@ -414,7 +547,7 @@ namespace ChatGPTExecutor
             cmdProcess.BeginOutputReadLine();
             cmdProcess.BeginErrorReadLine();
 
-            outputTimeoutTimer = new System.Timers.Timer(1000); // 1 second timeout
+            outputTimeoutTimer = new System.Timers.Timer(3000); // 3 second timeout
             outputTimeoutTimer.Elapsed += OutputTimeoutTimer_Elapsed;
             outputTimeoutTimer.AutoReset = false;
         }

@@ -31,6 +31,7 @@ SolidCompression=yes
 WizardStyle=modern
 AppMutex=MyProgramMutex
 SignTool=signTool
+SetupIconFile=..\assets\logo48.ico
 
                     
 [Languages]
@@ -76,6 +77,10 @@ Source: "{#buildFoler}\System.Diagnostics.EventLog.dll"; DestDir: "{app}"; Flags
 Source: "{#buildFoler}\System.ServiceProcess.ServiceController.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\Topshelf.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\TopShelf.ServiceInstaller.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#buildFoler}\Serilog.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#buildFoler}\Serilog.Formatting.Compact.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#buildFoler}\Serilog.Sinks.Console.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#buildFoler}\Serilog.Sinks.File.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\runtimes\*"; DestDir: "{app}\runtimes"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
