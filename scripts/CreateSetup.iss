@@ -70,6 +70,7 @@ Source: "{#buildFoler}\ChatGPT-Executor.dll"; DestDir: "{app}"; Flags: ignorever
 Source: "{#buildFoler}\ChatGPT-Executor.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\ChatGPT-Executor.pdb"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\ChatGPT-Executor.runtimeconfig.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#buildFoler}\Config.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\firstPrompt.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\Fleck.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#buildFoler}\Microsoft.Win32.SystemEvents.dll"; DestDir: "{app}"; Flags: ignoreversion
@@ -90,7 +91,7 @@ Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Parameters: "install start"; Flags: runhidden
+Filename: "{app}\{#MyAppExeName}"; Parameters: "install start --autostart"; Flags: runhidden
 Filename: "{cmd}"; Parameters: "/C sc config {#MyAppExeName} start= auto"; Flags: runhidden
 
 
