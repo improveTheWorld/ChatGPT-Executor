@@ -1,0 +1,11 @@
+{
+  "FirstPromptFilePath": "firstPrompt.md",
+  "Header": "CHATGPT<< \\r\\n",
+  "Tail": "\r\n >>CHATGPT",
+  "AskForNext": "<<ASK_FOR_NEXT>>",
+  "WsPort": "8181",
+  "MaxWords": "2400",
+  "MaxMessageSize": "4000",
+  "AcceptNewClients": "false",
+  "AlreadyHadClient": "true"
+}

@@ -22,14 +22,46 @@ namespace ChatGPTExecutor
 
     class CommandManager
     {
-        private const int maxWords = 2400;
-        private const int MaxMessageSize = 4000;
+        private readonly struct Config
+        {
+             
+            public readonly string FirstPromptFilePath;
+            public readonly string Header;
+            public readonly string Tail;
+            public readonly string AskForNext;
+            public readonly string WsPort;
+            public readonly int MaxWords;
+            public readonly int MaxMessageSize;
+            public readonly bool AcceptNewClients;
+            public readonly bool AlreadyHadClient;
+
+            
+            public Config(string ConfigFilePath)
+            {
+
+
+                string jsonContent = File.ReadAllText(ConfigFilePath);
+
+                Dictionary<string, string> dict = JsonSerializer.Deserialize<Dictionary<string, string>>(jsonContent);
+
+                Header = dict["Header"];
+                Tail = dict["Tail"];
+                AskForNext = dict["AskForNext"];
+                WsPort = dict["WsPort"];
+                MaxWords = Convert.ToInt32(dict["MaxWords"]);
+                MaxMessageSize = Convert.ToInt32(dict["MaxMessageSize"]);
+                AcceptNewClients = Convert.ToBoolean(dict["AcceptNewClients"]);
+                AlreadyHadClient = Convert.ToBoolean(dict["AlreadyHadClient"]);
+                FirstPromptFilePath = dict["FirstPromptFilePath"];
+
+            }
+        }
+
+
+        private static readonly Config config = new Config("Config.json");
+
         private static List<string> outputParts = new List<string>();
         private static int currentPartIndex = 0;
-
-        private static string Header = string.Empty ;
-        private static string Tailor = string.Empty;
-        private static string AskForNext = string.Empty;
         private static string receptionBuffer = ""; 
 
         private static bool firstOutputLine = true;
@@ -49,22 +81,22 @@ namespace ChatGPTExecutor
         private static CancellationTokenSource cancellationTokenSource= new CancellationTokenSource();
         private static  Task serviceTask;
         private static  Dictionary<string, string> authSentences = new Dictionary<string, string>();
-        private static string funKey;
-        private static bool acceptNewClients = false;
-        private static bool alreadyHadClient = true;
-        private const string ConfigFilePath = "Config.json";
-        private static string FirstPromptFilePath;
+        private static string AuthKey;
+
+        private static bool acceptNewClients = config.AcceptNewClients;
+        private static bool alreadyHadClient = config.AlreadyHadClient;
 
 
 
-        private void initfunKey()
+
+        private void initfunKey(bool createIfNone = true)
         {
-            funKey = loadFunKey();
-            if (funKey == string.Empty)
+            AuthKey = loadFunKey();
+            if (createIfNone && AuthKey == string.Empty)
             {
                 Log.Information("Creating new key ...");
-                funKey = GenerateRandomToken();
-                savefunKey(funKey);
+                AuthKey = GenerateRandomToken();
+                savefunKey(AuthKey);
                 acceptNewClients = true;
                 alreadyHadClient = false;
                 new Timer( (_) =>
@@ -98,6 +130,11 @@ namespace ChatGPTExecutor
                 {
                     text = input.ReadToEnd();
                 }
+            }
+            else
+            {
+                acceptNewClients = true;
+                alreadyHadClient = false;
             }
 
             if (text.Length > 44)
@@ -155,50 +192,7 @@ namespace ChatGPTExecutor
         }
 
 
-        public static (string firstPromptFilePAth, string header, string tail, string askForNext, string wsPort) InitProtocolConfig()
-        {
-            string header = string.Empty;
-            string tail = string.Empty;
-            string askForNext = string.Empty;
-            string firstPromptFilePath = string.Empty;
-            string wsPort = string.Empty;
-
-            if (File.Exists(ConfigFilePath))
-            {
-                string jsonContent = File.ReadAllText(ConfigFilePath);
-
-                Dictionary<string, string> config = JsonSerializer.Deserialize<Dictionary<string, string>>(jsonContent);
-
-                if (config.ContainsKey("Header") && config.ContainsKey("Tailor") && config.ContainsKey("AskForNext") && config.ContainsKey("WsPort") )
-                {
-                    header = config["Header"];
-                    tail = config["Tailor"];
-                    askForNext = config["AskForNext"];
-                    wsPort = config["WsPort"];
-
-                    if(config.ContainsKey("FirstPromptFilePath"))
-                    {
-                        firstPromptFilePath = config["FirstPromptFilePath"];
-                    }
-                                 
-                }
-                else
-                {
-                    Log.Error("Invalid config file. Missing 'Header' or 'Tailor' key.");
-                }
-            }
-            else
-            {
-                Log.Error("Config file not found.");
-            }
-
-            if( string.IsNullOrEmpty(header) || string.IsNullOrEmpty(tail) || string.IsNullOrEmpty(askForNext) ||  string.IsNullOrEmpty(wsPort))           {
-                throw new Exception("Bad Protocol Config file");
-            }
-
-            return (firstPromptFilePath, header, tail, askForNext, wsPort);
-        }
-
+        
 
 
         public static string EncryptStringAES(string b64Text, string b64Key)
@@ -233,29 +227,37 @@ namespace ChatGPTExecutor
         }
 
         public static string DecryptStringAES(string b64CipherText, string b64Key)
-        {
-            byte[] keyBytes = Convert.FromBase64String(b64Key);
-            byte[] encryptedBytes = Convert.FromBase64String(b64CipherText);
-            byte[] iv = new byte[16];
-            Array.Copy(encryptedBytes, 0, iv, 0, iv.Length);
-            byte[] cipherBytes = new byte[encryptedBytes.Length - iv.Length];
-            Array.Copy(encryptedBytes, iv.Length, cipherBytes, 0, cipherBytes.Length);
-
-            using (Aes aes = Aes.Create())
+        { 
+            try
             {
-                aes.Key = keyBytes;
-                aes.IV = iv;
-                aes.Padding = PaddingMode.PKCS7; // Set the padding mode to PKCS7
+                byte[] keyBytes = Convert.FromBase64String(b64Key);
+                byte[] encryptedBytes = Convert.FromBase64String(b64CipherText);
+                byte[] iv = new byte[16];
+                Array.Copy(encryptedBytes, 0, iv, 0, iv.Length);
+                byte[] cipherBytes = new byte[encryptedBytes.Length - iv.Length];
+                Array.Copy(encryptedBytes, iv.Length, cipherBytes, 0, cipherBytes.Length);
 
-                ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
-
-                using (MemoryStream ms = new MemoryStream(cipherBytes))
-                using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
-                using (StreamReader reader = new StreamReader(cs))
+                using (Aes aes = Aes.Create())
                 {
-                    return reader.ReadToEnd();
+                    aes.Key = keyBytes;
+                    aes.IV = iv;
+                    aes.Padding = PaddingMode.PKCS7; // Set the padding mode to PKCS7
+
+                    ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+
+                    using (MemoryStream ms = new MemoryStream(cipherBytes))
+                    using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
+                    using (StreamReader reader = new StreamReader(cs))
+                    {
+                        return reader.ReadToEnd();
+                    }
                 }
+            }catch
+            {
+                Log.Warning("Answer could not be decrypted . Authetification failed");
+                return string.Empty;
             }
+            
         }
 
         public static string ComputeSha256Hash(string rawData)
@@ -290,7 +292,8 @@ namespace ChatGPTExecutor
                     if(acceptNewClients || !alreadyHadClient)
                     {
                         Log.Information(" New client registred");
-                        socket.Send("KEY:"+ funKey);
+                        initfunKey(true);
+                        socket.Send("KEY:"+ AuthKey);
                         alreadyHadClient = true;
                         cookies["authenticated"] = "True";
                     }
@@ -320,7 +323,7 @@ namespace ChatGPTExecutor
 
                     if (cookies["authenticated"] == "False")
                     {
-                        if (DecryptStringAES(message, funKey) == cookies["token"])
+                        if (DecryptStringAES(message, AuthKey) == cookies["token"])
                         {
                             cookies["authenticated"] = "True";
                             Log.Information($"Socket {socket.ConnectionInfo.Id} : Correct Authentification answer. authenticated.");
@@ -355,7 +358,7 @@ namespace ChatGPTExecutor
                             if (receptionBuffer != string.Empty)
                             {
                                 Log.Information($"Last Command Uncomplete. Continue");
-                                socket.Send($"{Header} The previous command was incomplete. Please do not repeat any words that I have already received. Instead, continue from where you left off. The last line I received was '{GetLastLine(receptionBuffer)}'.  {Tailor}");
+                                socket.Send($"{config.Header} The previous command was incomplete. Please do not repeat any words that I have already received. Instead, continue from where you left off. The last line I received was '{GetLastLine(receptionBuffer)}'.  {config.Tail}");
                                 return;
                             }
 
@@ -412,24 +415,11 @@ namespace ChatGPTExecutor
         public void StartServiceTask()
         {
             bool isNewInstance;
-
-            string akey = "0123456789123456";
-            string atext = "hello world !";
-
-
-            var b64key = Convert.ToBase64String(Encoding.UTF8.GetBytes(akey));
-            var b64text = Convert.ToBase64String(Encoding.UTF8.GetBytes(atext));
-
-            string b64encrypted = EncryptStringAES(b64text, b64key);
-            string decripted = DecryptStringAES(b64encrypted, b64key);
-            //  status : decripted==  "hello world !"
-
+            initfunKey(false);
             using (Mutex mutex = new Mutex(true, "ChatGPTExecutor", out isNewInstance))
             {
                 if (isNewInstance)
                 {
-
-
 
                     Log.Logger = new LoggerConfiguration()
                         .WriteTo.Console()
@@ -448,19 +438,16 @@ namespace ChatGPTExecutor
 
 
 
-                    initfunKey();
+                    
                     // Initialize cmd process
                     InitializeCmdProcess();
-                    string wsPort = string.Empty;
 
-                    (FirstPromptFilePath ,Header, Tailor, AskForNext, wsPort) = InitProtocolConfig();
-
-                    if(File.Exists(FirstPromptFilePath))
+                    if(File.Exists(config.FirstPromptFilePath))
                     {
-                        firstPrompt = File.ReadAllText(FirstPromptFilePath);
+                        firstPrompt = File.ReadAllText(config.FirstPromptFilePath);
                     }
                                       
-                    server = new WebSocketServer($"ws://127.0.0.1:{wsPort}");
+                    server = new WebSocketServer($"ws://127.0.0.1:{config.WsPort}");
                     cancellationTokenSource = new CancellationTokenSource();
                     connect(server);
 
@@ -510,7 +497,7 @@ namespace ChatGPTExecutor
         static void processOutput(string output)
         {
             //Console.WriteLine($"Command Execution output: {output}");
-            output = Header + output + Tailor;
+            output = config.Header + output + config.Tail;
             // Divide the output into parts and send the first part
             DivideOutput(output);
         }
@@ -526,7 +513,7 @@ namespace ChatGPTExecutor
 
             while (position < outputLength)
             {
-                int length = Math.Min(MaxMessageSize, outputLength - position);
+                int length = Math.Min(config.MaxMessageSize, outputLength - position);
                 string part;
 
                 //if (firstPart)
@@ -541,7 +528,7 @@ namespace ChatGPTExecutor
                 }
                 else
                 {
-                    part = output.Substring(position, length) + AskForNext;
+                    part = output.Substring(position, length) + config.AskForNext;
                 }
 
                 outputParts.Add(part);
@@ -593,7 +580,7 @@ namespace ChatGPTExecutor
                 int wordsProcessed = 0;
                 StringBuilder partBuilder = new StringBuilder();
 
-                while (wordsProcessed < maxWords && position < outputLength)
+                while (wordsProcessed < config.MaxWords && position < outputLength)
                 {
                     partBuilder.Append(output[position]);
                     if (char.IsWhiteSpace(output[position]))
@@ -612,11 +599,11 @@ namespace ChatGPTExecutor
                     {
                         position -= (partBuilder.Length - lastNewline - 1);
                         partBuilder.Length = lastNewline + 1;
-                        partBuilder.Append(AskForNext);
+                        partBuilder.Append(config.AskForNext);
                     }
                     else
                     {
-                        partBuilder.Append("\r\n"+ AskForNext);
+                        partBuilder.Append("\r\n"+ config.AskForNext);
                     }
                 }
                 outputParts.Add(partBuilder.ToString());
