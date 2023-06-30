@@ -1,4 +1,8 @@
-## CHATGPT-Executor V1.1.0
-*   Optimize the maximum word usage.
-*   When the Executor asks ChatGPT to continue, it should specify the last received line and request that ChatGPT not resend previously received content.
-*   *   Move the management of the initial prompt to the server side to minimize dependency on the plugin protocol and ensure ongoing compatibility between the initial prompt version and the server-implemented version. To accomplish this, add a config parameter on the plugin side that requests an initial prompt when new communication is detected. The plugin should send a command to the server, which should be independent of the protocol, "_SART_NEW".
+# V1.2.0 , what's new :
+
+- Implemented authentication token mechanisms to prevent server misuse.
+- Resolved an issue involving lost connections without recovery attempts.
+- Introduced log generation for better tracking and debugging.
+- Externalized modifiable variables to a dedicated configuration file for enhanced customization.
+- Converted the server application into a Windows service for seamless integration and execution.
+- Digitally signed the installation package to mitigate antivirus warnings.

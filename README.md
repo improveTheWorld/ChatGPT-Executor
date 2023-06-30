@@ -11,6 +11,14 @@ ChatGPT-Executor is part of the [ChatGPT-Driver](youtu.be/9fCtMJQxQ4c) system, d
 * 🔄 Bidirectional communication with ChatGPT and the command execution environment
 * 📦 Easy integration with ChatGPT web plugin
 * 📄 Enable ChatGPT to read large files that exceed the size of a single prompt
+  
+## 🆕 Most recent Release Notes (Version 1.2.0)
+* Introduced an authentication token mechanism to safeguard against server misuse.
+* Fixed an issue relating to lost connections without recovery attempts.
+* Added logging capability for improved traceability and debugging.
+* Migrated modifiable variables to a dedicated configuration file to enhance customization.
+* Transformed the server application to run as a Windows service for seamless execution.
+* Digitally signed the setup to eliminate antivirus warnings.
 
 ## 🚀 Getting Started
 
